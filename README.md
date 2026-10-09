@@ -19,7 +19,6 @@ tests/                unittest + Flask test client, real PostgreSQL
 spec/                 service spec and project docs
 Dockerfile            gunicorn image
 compose.yaml          Postgres (5433) + the service (8001)
-.github/workflows/    test, then build image on main
 ```
 
 ## Run locally

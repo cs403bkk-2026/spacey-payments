@@ -13,6 +13,7 @@ Specifications and project documentation for the Spacey system, which is split a
 spec/
   README.md          this file
   payments/          what the payments service must do (the contract)
+  tickets/           one file per ticket, named PT-NNN-short-title.md
   docs/              everything else about the project - see docs/README.md
 ```
 

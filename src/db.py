@@ -13,11 +13,11 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 def get_connection(database_url: str) -> psycopg.Connection:
     try:
         conn = psycopg.connect(database_url, row_factory=dict_row, autocommit=True)
-    except psycopg.OperationalError as error:
+    except psycopg.OperationalError:
         logger.error("startup outcome=database_unreachable")
+        # The driver's message can carry connection details; never print it.
         raise SystemExit(
             "Could not connect to the database (check DATABASE_URL).\n"
-            f"{error}\n"
             "Is Postgres running? Try: docker compose up db -d"
         ) from None
     run_migrations(conn)

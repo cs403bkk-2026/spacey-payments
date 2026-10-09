@@ -1,6 +1,6 @@
 # PT-019: Refactor the refund logic back to the new repo
 
-Status: Open.
+Status: Implemented; awaiting review.
 Date: 2026-10-09
 Depends on: [PT-018](PT-018-split-payment-into-separate-service.md) (service split).
 Related: PT-013 (refund on cancellation, monolith PR #260), [ADR 0003](../docs/adr/0003-booking-after-failed-payment.md), [ADR 0004](../docs/adr/0004-purchase-payments-communication.md), [payments spec](../payments/spec.md).
@@ -43,19 +43,26 @@ Out (separate tickets, not yet written):
 
 ## Acceptance criteria
 
-- [ ] Refunding a `success` payment returns `201` and records exactly one `refunded` row with the same `booking_id`, `amount_cents`, `currency` and `card_last4`, `reason` set, and `idempotency_key` `refund:<payment_id>`.
-- [ ] Repeating the request returns `200` with the same refund and records no second row.
-- [ ] Two concurrent requests for the same payment record exactly one refund.
-- [ ] A `failed`, `unknown` or `refunded` payment returns `409` and records nothing.
-- [ ] An unknown `payment_id` returns `404`.
-- [ ] A database failure returns `500 {error: "payment unavailable"}` and logs `outcome=database_error` at ERROR without exception text.
-- [ ] The original `success` row is never modified.
-- [ ] No full card number or CVC appears in responses, logs or the database.
-- [ ] Tests pass against PostgreSQL (`uv run python -m unittest discover -s tests`).
+- [x] Refunding a `success` payment returns `201` and records exactly one `refunded` row with the same `booking_id`, `amount_cents`, `currency` and `card_last4`, `reason` set, and `idempotency_key` `refund:<payment_id>`.
+- [x] Repeating the request returns `200` with the same refund and records no second row.
+- [x] Two concurrent requests for the same payment record exactly one refund.
+- [x] A `failed`, `unknown` or `refunded` payment returns `409` and records nothing.
+- [x] An unknown `payment_id` returns `404`.
+- [x] A database failure returns `500 {error: "payment unavailable"}` and logs `outcome=database_error` at ERROR without exception text.
+- [x] The original `success` row is never modified.
+- [x] No full card number or CVC appears in responses, logs or the database.
+- [x] Tests pass against PostgreSQL (`uv run python -m unittest discover -s tests`).
 
 ## Tests
 
 Seed `payments` rows directly (nothing records payments yet), then cover every row of the table above, the concurrent case, and log levels and fields.
+
+## Validation
+
+`DATABASE_URL=<disposable PostgreSQL 16 database> uv run python -m unittest discover -s tests -v`
+passed all 11 tests on 2026-10-09, including concurrent refund requests using
+separate database connections. Migrations 001–003 applied successfully to the
+empty test database. `git diff --check` passed.
 
 ## Open question
 

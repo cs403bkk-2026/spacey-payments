@@ -4,6 +4,20 @@ Payments microservice for Spacey. Owns the `payments` ledger; paying a booking i
 The contract is in [`spec/payments/spec.md`](spec/payments/spec.md); contributor
 and agent guidance is in [`AGENTS.md`](AGENTS.md).
 
+## Refunds
+
+`POST /payments/<payment_id>/refund` records a full mock refund of an existing
+successful payment. Send an optional `{"reason": "cancellation"}` JSON body.
+Returns `201` on creation, `200` with the same refund on retries, `404` for an
+unknown payment, `409` for a non-success payment, `400` for invalid input, or
+`500` if the database is unavailable. Concurrent retries create one ledger row.
+No payment provider is integrated, and payment creation and Purchase integration
+are separate follow-ups: seed success rows to exercise this endpoint for now.
+
+Authentication is not implemented; keep the service private until service auth
+lands. Migration 003 requires unique existing non-null idempotency keys and
+fails rather than deleting duplicates. See the [contract](spec/payments/spec.md).
+
 ## Layout
 
 ```

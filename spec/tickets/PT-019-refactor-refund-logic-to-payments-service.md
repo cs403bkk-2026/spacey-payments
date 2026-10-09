@@ -26,7 +26,7 @@ In:
 - Logging in the `payment booking_id=… outcome=…` format; no card data or DB error text.
 - Tests and spec update.
 
-Out (separate tickets, not yet written):
+Out (remaining migration tracked in [PT-020](PT-020-complete-payments-repo-migration.md)):
 1. `POST /payments`, `GET /payments/<id>`, `GET /payments?booking_id=`: recording and looking up payments.
 2. Service-token auth (`X-Service-Token`) and `PURCHASE_URL` / `SERVICE_TOKEN` config.
 3. The `payment-result` notification to Purchase.

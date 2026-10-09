@@ -12,3 +12,4 @@
 
 - [0001 Move reporting to Grafana](adr/0001-move-reporting-to-grafana.md)
 - [0003 Booking after failed or unknown payment](adr/0003-booking-after-failed-payment.md)
+- [0004 How Purchase and Payments communicate](adr/0004-purchase-payments-communication.md) (proposed)

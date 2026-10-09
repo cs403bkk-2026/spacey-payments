@@ -1,33 +1,45 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+`spacey-payments` is the payments microservice of Spacey. It was split out of the `spacey` backend, which now calls it over HTTP. Payments are mocked; no provider is integrated. Subscriptions are out of scope and live elsewhere.
 
-`src/payment_functionality.py` contains the Flask application, PostgreSQL table initialization, card validation, booking payment endpoint, and member subscription endpoint. Payments and subscriptions are mocked; no payment provider is integrated. There are currently no test, asset, or migration directories, dependency manifest, or build configuration. Keep related changes in the existing module unless separation solves a concrete need.
+## Where things are
 
-## Build, Test, and Development Commands
+- Code: `src/app.py` is `create_app()`, which wires `config.py` (env vars), `db.py` (connection and migration runner), `logger.py` (the shared logger), `health.py` (`GET /health`) and the payments blueprint. `src/payments/` is the domain, split by layer: `api.py` (Flask blueprint, HTTP only), `services.py` (business rules, no Flask or SQL), `repository.py` (SQL only), `models/cards.py` (card validation). Keep each layer to its job.
+- Migrations: `migrations/NNN_name.sql`, applied once each in filename order at startup and tracked in `schema_migrations`. Change the schema by adding a new numbered file, never by editing an applied one.
+- Spec: `spec/payments/spec.md` is the contract (endpoints, status codes, rules). Read it before changing behaviour and update it in the same change. Decisions with trade-offs get an ADR in `spec/docs/adr/`.
+- Related repo (sibling of this one): `../spacey` (backend, the caller of this service).
+- Table: `bookings` (payment-only columns), created by `migrations/001_init.sql`. There are no foreign keys, since spaces and users live in other services.
 
-Use Python 3.10 or newer and a running PostgreSQL instance.
+## Build, run and test
 
-- `python3 -m venv .venv` and `source .venv/bin/activate`: create and activate a local environment.
-- `python -m pip install Flask "psycopg[binary]"`: install the libraries imported by the application.
-- `export DATABASE_URL='postgresql://spacey:spacey@localhost:5432/spacey'`: configure a local database; provision the database and role separately.
-- `python -m flask --app src.payment_functionality run --debug`: start the local development server. Importing the module connects to PostgreSQL and creates missing tables.
-- `curl http://127.0.0.1:5000/health`: check application and database connectivity.
+Python 3.10+, [uv](https://docs.astral.sh/uv/) and a running PostgreSQL.
 
-No build step or Docker Compose file is checked in.
+- `uv sync`: install dependencies from `uv.lock`.
+- `export DATABASE_URL='postgresql://spacey:spacey@localhost:5432/spacey'`: the default. The sibling `../spacey/compose.yaml` publishes Postgres on **5433**, so use that port if you start it with `docker compose up db -d`.
+- `uv run flask --app 'src.app:create_app' run --port 5001 --debug`: start the server. Use 5001 because macOS AirPlay occupies 5000. Creating the app connects to the database and exits with a readable message if it cannot.
+- `curl http://127.0.0.1:5001/health`: check app and database.
+- `docker compose up --build`: run the service and its database in containers (service on 8001).
+- `uv run python -m unittest discover -s tests`: run tests (needs `DATABASE_URL` pointing at a disposable database).
 
-## Coding Style & Naming Conventions
+## Coding style
 
-Use four-space indentation, `snake_case` functions and variables, and uppercase constants. Follow the existing type hints and short docstrings. Keep SQL parameterized with `%s` placeholders and separate parameters. Represent monetary values as integer cents. No formatter or linter is configured.
+Four-space indentation, `snake_case`, uppercase constants, type hints and short docstrings as in the existing module. SQL is always parameterised with `%s` and separate parameters. Money is integer cents. No formatter or linter is configured; match the surrounding code.
 
-## Testing Guidelines
+## Testing
 
-No test framework, suite, or coverage threshold is configured. Add focused regression tests under `tests/test_*.py`; Python's `unittest` and Flask's test client are sufficient. Run them with `python -m unittest discover -s tests` once tests exist. Use a dedicated PostgreSQL test database. Cover invalid cards, missing bookings, forced payment failures, repeated payments, and normalized subscription names.
+Tests live in `tests/test_*.py` with helpers in `tests/support.py`; add new ones there using `unittest` and Flask's test client, against a dedicated test database (`create_app(database_url, reset_on_start=True)`). Cover at least: invalid card fields, missing booking, `force_failure`, paying twice (idempotent, no second charge), and any new endpoint's success and error paths.
 
-## Commit & Pull Request Guidelines
+## Security and configuration
 
-The current history contains `added payment functionality`; no formal convention is established. Use short, descriptive commit subjects. In pull requests, explain behavior changes, link relevant issues, and report validation commands and results. Include request/response examples for endpoint changes.
+- Never persist full card numbers or CVCs; store only the last four digits. Never log card data or database exception text.
+- Treat the repo as public (the sibling repos are): no `.env`, credentials or tokens in commits.
+- Variables: `DATABASE_URL`, `APP_REVISION` (reported by `/health`), `LOG_LEVEL`, `RESET_DB_ON_START`.
+- `RESET_DB_ON_START=true` truncates the `bookings` table. Use it only against disposable local or test data, never in a deployment.
 
-## Security & Configuration
+## Workflow
 
-Keep credentials out of commits and logs. Never persist full card numbers or CVCs; store only the last four digits. `RESET_DB_ON_START=true` truncates both tables: enable it only against disposable local or test data.
+Follow `spec/docs/process/CONTRIBUTING.md`: branch per change, pull request with what/why/how-checked, review before merge, no direct pushes to `main`. Commit subjects are short and descriptive. In PRs, list the validation commands you ran and include request/response examples for endpoint changes.
+
+## Maintaining this file
+
+Keep this file about how to work in this repo. Behaviour belongs in the spec. If the layout changes (new modules, Dockerfile, migrations, CI), update the sections above in the same PR.

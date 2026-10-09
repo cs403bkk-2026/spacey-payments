@@ -1,0 +1,593 @@
+openapi: 3.0.3
+info:
+  title: Spacey Payments API
+  description: >
+    The payments microservice of Spacey. It owns the `payments` ledger:
+    payment attempts and refunds, keyed by booking. It never reads or writes
+    bookings; Purchase (the booking service) calls it over HTTP.
+
+
+    Payments are mocked: no payment provider is integrated.
+
+
+    **Status.** `GET /health` is implemented. `POST /payments/{payment_id}/refund`
+    is implemented in PT-019 (PR #3, in review). `POST /payment/bookings/{booking_id}/pay`
+    is a **temporary** route, moved from `spacey` by PT-022 (source: `spacey`
+    PR #244, still open). It is stateless and will be replaced by `POST /payments`
+    and removed from the final API once the ledger lands. `POST /payments`,
+    `GET /payments/{payment_id}` and `GET /payments` are proposed (ADR 0004,
+    `spec/docs/adr/0004-purchase-payments-communication.md`) and have not yet
+    been agreed with Purchase. Service authentication is not implemented yet:
+    do not expose any `/payments` endpoint publicly until it is.
+
+
+    **Authentication (planned).** Every endpoint except `GET /health` will
+    require the shared secret in the `X-Service-Token` header. Requests without
+    it, or with the wrong value, will get `401`.
+
+
+    **Errors.** Every error response is `{"error": "<message>"}`. The only
+    non-2xx responses that carry a Payment instead are `402` (failed) on
+    `POST /payments`, and `409 booking already paid`.
+
+
+    **Idempotency.** `POST /payments` takes an `idempotency_key`. Repeating a
+    request with a key that was already used for the same booking and amount
+    returns the original status code and body and never collects twice. Pressing
+    Pay again after a confirmed failure must send a new key, which creates a new
+    payment. A refund is keyed internally by the payment it refunds
+    (`refund:<payment_id>`), so refunding twice returns the first refund.
+
+
+    **Card data.** The full card number and CVC are only accepted on
+    `POST /payments`, are never stored or logged, and never appear in a
+    response. Only the last four digits are kept.
+  version: "0.1.0"
+servers:
+  - url: /
+    description: Same host the service is running on (local, container, or the deployed URL).
+
+tags:
+  - name: payments
+    description: Payment attempts and refunds. Called by Purchase.
+  - name: operations
+    description: Health check.
+
+security:
+  - ServiceToken: []
+
+paths:
+  /health:
+    get:
+      tags: [operations]
+      summary: Check the service and database are reachable.
+      description: Open, so no service token is needed.
+      security: []
+      responses:
+        "200":
+          description: Healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok] }
+                  revision:
+                    type: string
+                    description: The `APP_REVISION` environment variable, or `local` if unset.
+                required: [status, revision]
+        "503":
+          description: The database is unreachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [error] }
+                  error: { type: string, example: database unreachable }
+                required: [status, error]
+
+  /payment/bookings/{booking_id}/pay:
+    post:
+      tags: [payments]
+      summary: Get a mock payment outcome for a booking (temporary).
+      deprecated: true
+      description: >
+        **Temporary.** Moved from `spacey` (PT-022, source PR #244) so Purchase
+        can keep working during the migration. It will be replaced by
+        `POST /payments` and removed in the final API; do not build new clients
+        on it. **Stateless:** it
+        validates the card and returns a mock outcome. It reads and writes no
+        database table and does not check that the booking exists; Purchase
+        owns booking existence, retries and the booking's paid state. Nothing
+        is recorded, so retrying collects nothing and is not deduplicated.
+        Replaced by `POST /payments` (ledger, idempotency key) in the final
+        API.
+
+
+        The body is read leniently: a missing, malformed or non-object JSON
+        body is treated as `{}` and gets the first card error. The first
+        problem found wins, in this order: card number format, card number
+        checksum (Luhn), CVC, expiry format, expiry date.
+
+
+        `force_failure` is a test hook that makes the attempt fail.
+      operationId: payBooking
+      parameters:
+        - name: booking_id
+          in: path
+          required: true
+          description: >
+            The booking this outcome is for. Echoed back; not checked against
+            Purchase.
+          schema: { type: integer, minimum: 1, example: 7 }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PayBookingRequest"
+            example:
+              card_number: "4111111111111111"
+              expiry: "12/99"
+              cvc: "987"
+      responses:
+        "200":
+          description: The card is accepted. Only the last four digits are returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentOutcome" }
+              example:
+                booking_id: 7
+                status: success
+                card_last4: "1111"
+        "400":
+          description: The card is invalid. The message names the first problem found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                card_number:
+                  value: { error: card_number must be 13-19 digits }
+                luhn:
+                  value: { error: card_number is not a valid card number }
+                cvc:
+                  value: { error: cvc must be 3 or 4 digits }
+                expiry_format:
+                  value: { error: expiry must be in MM/YY format }
+                expired:
+                  value: { error: card has expired }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402":
+          description: The attempt was forced to fail (`force_failure`). Nothing is recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: payment failed }
+
+  /payments:
+    post:
+      tags: [payments]
+      summary: Start a payment attempt for a booking.
+      description: >
+        Validates the card, records the attempt and returns it. The outcome is
+        `success`, `failed` or `unknown`, and each is stored as a payment with
+        its own `payment_id`. After recording, Payments notifies Purchase of the
+        outcome (see ADR 0004); a failed notification never changes the
+        recorded payment.
+
+
+        Repeating a request with an `idempotency_key` already used for the same
+        `booking_id` and `amount_cents` returns the original status code and
+        body, and collects nothing. A booking can only have one `success`
+        payment.
+
+
+        An invalid body or card is rejected with `400` and nothing is recorded.
+        `force_failure` is a test hook that makes the attempt fail.
+      operationId: createPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentRequest"
+            example:
+              booking_id: 42
+              amount_cents: 1500
+              currency: USD
+              card_number: "4242424242424242"
+              expiry: "12/30"
+              cvc: "123"
+              idempotency_key: booking-42-attempt-1
+      responses:
+        "201":
+          description: Collected. The recorded payment, with `status` `success`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+              example:
+                payment_id: 12
+                booking_id: 42
+                amount_cents: 1500
+                currency: USD
+                status: success
+                reason: null
+                card_last4: "4242"
+                created_at: "2026-10-09T06:31:24.910522+00:00"
+        "202":
+          description: >
+            The outcome could not be determined. The recorded payment, with
+            `status` `unknown`. Treat it as unconfirmed (not failed) and resolve
+            it with `GET /payments/{payment_id}`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+        "400":
+          description: >
+            The body or card is invalid. Nothing was recorded. The message names
+            the first problem found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                amount:
+                  value: { error: amount_cents must be a positive integer }
+                key:
+                  value: { error: idempotency_key is required }
+                card_number:
+                  value: { error: card_number must be 13-19 digits }
+                cvc:
+                  value: { error: cvc must be 3 or 4 digits }
+                expiry_format:
+                  value: { error: expiry must be in MM/YY format }
+                expired:
+                  value: { error: card has expired }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402":
+          description: >
+            The payment was declined. The recorded payment, with `status`
+            `failed` and `reason` `payment failed`. The booking stays unpaid and
+            retryable; to try again, send a new `idempotency_key`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+              example:
+                payment_id: 13
+                booking_id: 42
+                amount_cents: 1500
+                currency: USD
+                status: failed
+                reason: payment failed
+                card_last4: "4242"
+                created_at: "2026-10-09T06:33:02.114000+00:00"
+        "409":
+          description: >
+            Either the `idempotency_key` was already used for a different
+            booking or amount (an `Error`), or the booking already has a
+            `success` payment under a different key (the existing `Payment`, so
+            the caller can see what was collected).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Error"
+                  - $ref: "#/components/schemas/Payment"
+              examples:
+                key_reused:
+                  summary: Key reused with a different booking or amount.
+                  value: { error: idempotency_key reused }
+                already_paid:
+                  summary: Booking already paid under another key.
+                  value:
+                    payment_id: 12
+                    booking_id: 42
+                    amount_cents: 1500
+                    currency: USD
+                    status: success
+                    reason: null
+                    card_last4: "4242"
+                    created_at: "2026-10-09T06:31:24.910522+00:00"
+        "500": { $ref: "#/components/responses/Unavailable" }
+
+    get:
+      tags: [payments]
+      summary: List a booking's payments.
+      description: >
+        Every payment and refund recorded for one booking, oldest first. Used
+        by Purchase to reconcile a booking that is stuck unpaid or has an
+        `unknown` payment. A booking with no payments returns an empty list.
+      operationId: listPayments
+      parameters:
+        - name: booking_id
+          in: query
+          required: true
+          description: The booking whose payments to list.
+          schema: { type: integer, example: 42 }
+      responses:
+        "200":
+          description: The booking's payments, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payments:
+                    type: array
+                    items: { $ref: "#/components/schemas/Payment" }
+                required: [payments]
+        "400":
+          description: '`booking_id` is missing or not an integer.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: booking_id must be an integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/Unavailable" }
+
+  /payments/{payment_id}:
+    get:
+      tags: [payments]
+      summary: Get one payment.
+      description: >
+        Used to resolve an `unknown` outcome by asking about the same
+        operation, instead of collecting again.
+      operationId: getPayment
+      parameters:
+        - $ref: "#/components/parameters/PaymentId"
+      responses:
+        "200":
+          description: The payment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/PaymentNotFound" }
+        "500": { $ref: "#/components/responses/Unavailable" }
+
+  /payments/{payment_id}/refund:
+    post:
+      tags: [payments]
+      summary: Refund a payment in full.
+      description: >
+        Records a refund for a `success` payment as a new payment with `status`
+        `refunded`, copying the original's `booking_id`, `amount_cents`,
+        `currency` and `card_last4`. The original row is never changed. Used
+        for booking cancellation (`reason` `cancellation`) and for a late
+        success after the booking's hold expired (`reason` `hold_expired`).
+        No money moves: this is a mock.
+
+
+        Idempotent: refunding a payment that already has a refund returns that
+        refund with `200` and records nothing; the refund keeps its original
+        `reason`. Concurrent requests return the same refund (one `201`, the
+        others `200`). Retry with the **original** payment's id, not the
+        refund's id. Only full refunds are supported.
+      operationId: refundPayment
+      parameters:
+        - $ref: "#/components/parameters/PaymentId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefundRequest"
+            example:
+              reason: cancellation
+      responses:
+        "201":
+          description: Refunded. The new refund payment, with its own `payment_id`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+              example:
+                payment_id: 57
+                booking_id: 42
+                amount_cents: 1500
+                currency: USD
+                status: refunded
+                reason: cancellation
+                card_last4: "4242"
+                created_at: "2026-10-09T07:02:11.500000+00:00"
+        "200":
+          description: The payment was already refunded. The existing refund; nothing new recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+        "400":
+          description: >
+            The body is malformed JSON or not an object, or `reason` is not a
+            non-empty string. Nothing was recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                body:
+                  value: { error: body must be a JSON object }
+                reason:
+                  value: { error: reason must be a non-empty string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/PaymentNotFound" }
+        "409":
+          description: The payment is `failed`, `unknown` or already `refunded`, so it cannot be refunded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: payment is not refundable }
+        "500": { $ref: "#/components/responses/Unavailable" }
+
+components:
+  securitySchemes:
+    ServiceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared secret between Purchase and Payments, set from the environment.
+
+  parameters:
+    PaymentId:
+      name: payment_id
+      in: path
+      required: true
+      description: The `payment_id` of a payment, as returned by this API.
+      schema: { type: integer, minimum: 1, example: 12 }
+
+  responses:
+    Unauthorized:
+      description: The `X-Service-Token` header is missing or wrong.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: unauthorized }
+    PaymentNotFound:
+      description: No payment with that id.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: payment not found }
+    Unavailable:
+      description: >
+        A database failure. Logged at ERROR with the booking id only, never the
+        database error text. Safe to retry with the same `idempotency_key`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: payment unavailable }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+      required: [error]
+
+    CreatePaymentRequest:
+      type: object
+      properties:
+        booking_id:
+          type: integer
+          description: The booking this payment is for. Not checked against Purchase.
+          example: 42
+        amount_cents:
+          type: integer
+          minimum: 1
+          description: The booking's recorded price in cents, sent by Purchase.
+          example: 1500
+        currency:
+          type: string
+          enum: [USD]
+          default: USD
+        card_number:
+          type: string
+          pattern: '^\d{13,19}$'
+          writeOnly: true
+          description: Never stored or logged. Only the last four digits are kept.
+          example: "4242424242424242"
+        expiry:
+          type: string
+          pattern: '^(0[1-9]|1[0-2])/\d{2}$'
+          writeOnly: true
+          description: '`MM/YY`; must not be in the past.'
+          example: "12/30"
+        cvc:
+          type: string
+          pattern: '^\d{3,4}$'
+          writeOnly: true
+          description: Never stored or logged.
+          example: "123"
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: >
+            Identifies this operation. Reuse it to retry the same attempt; send
+            a new one to try again after a confirmed failure.
+          example: booking-42-attempt-1
+        force_failure:
+          type: boolean
+          default: false
+          description: Test hook. If true, the attempt is recorded as `failed`.
+      required: [booking_id, amount_cents, card_number, expiry, cvc, idempotency_key]
+
+    PayBookingRequest:
+      type: object
+      description: The whole body is optional; see the endpoint description for how a missing or malformed body is handled.
+      properties:
+        card_number:
+          type: string
+          pattern: '^\d{13,19}$'
+          writeOnly: true
+          description: Must also pass the Luhn checksum. Never stored or logged.
+          example: "4111111111111111"
+        expiry:
+          type: string
+          pattern: '^(0[1-9]|1[0-2])/\d{2}$'
+          writeOnly: true
+          description: '`MM/YY`; must not be in the past.'
+          example: "12/99"
+        cvc:
+          type: string
+          pattern: '^\d{3,4}$'
+          writeOnly: true
+          description: Never stored or logged.
+          example: "987"
+        force_failure:
+          type: boolean
+          default: false
+          description: Test hook. Only a literal `true` forces the failure.
+
+    PaymentOutcome:
+      type: object
+      description: >
+        The mock outcome of a stateless payment. Not a ledger row, so it has no
+        `payment_id`.
+      properties:
+        booking_id: { type: integer }
+        status: { type: string, enum: [success] }
+        card_last4: { type: string, pattern: '^\d{4}$' }
+      required: [booking_id, status, card_last4]
+
+    RefundRequest:
+      type: object
+      description: The whole body is optional; an empty body means `reason` `cancellation`.
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          default: cancellation
+          description: >
+            A non-empty string (blank or whitespace-only is rejected).
+            Conventional values are `cancellation` and `hold_expired`.
+          example: cancellation
+
+    Payment:
+      type: object
+      description: >
+        One row of the `payments` ledger, as returned by this API (the
+        idempotency key is stored but not returned). A refund is its own row.
+      properties:
+        payment_id:
+          type: integer
+          description: The row id. For a refund, the refund's own id, not the original payment's.
+        booking_id: { type: integer }
+        amount_cents: { type: integer, minimum: 1 }
+        currency: { type: string, enum: [USD] }
+        status:
+          type: string
+          enum: [success, failed, unknown, refunded]
+        reason:
+          type: string
+          nullable: true
+          description: >
+            Why: `payment failed` for a declined payment, or the refund reason
+            for a refund. Null for a success.
+        card_last4:
+          type: string
+          nullable: true
+          pattern: '^\d{4}$'
+        created_at:
+          type: string
+          format: date-time
+          description: UTC.
+      required:
+        [payment_id, booking_id, amount_cents, currency, status, reason, card_last4, created_at]

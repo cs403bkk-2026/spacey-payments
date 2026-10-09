@@ -2,7 +2,7 @@
 
 Date: 2026-10-09
 
-Status: Proposed. The booking team (Purchase) has not agreed to the paths and fields below; nothing is implemented. Implementation is split into tickets, starting with refunds: [PT-019](../../tickets/PT-019-refactor-refund-logic-to-payments-service.md).
+Status: Proposed. The booking team (Purchase) has not agreed to the paths and fields below; only the refund endpoint is implemented (without service auth). The remaining integration is split into follow-ups; refunds are tracked in: [PT-019](../../tickets/PT-019-refactor-refund-logic-to-payments-service.md).
 
 ## Context
 

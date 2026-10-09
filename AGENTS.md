@@ -6,9 +6,9 @@
 
 - Code: `src/app.py` is `create_app()`, which wires `config.py` (env vars), `db.py` (connection and migration runner), `logger.py` (the shared logger), `health.py` (`GET /health`) and the payments blueprint. `src/payments/` is the domain, split by layer: `api.py` (Flask blueprint, HTTP only), `services.py` (business rules, no Flask or SQL), `repository.py` (SQL only), `models/cards.py` (card validation). Keep each layer to its job.
 - Migrations: `migrations/NNN_name.sql`, applied once each in filename order at startup and tracked in `schema_migrations`. Change the schema by adding a new numbered file, never by editing an applied one.
-- Spec: `spec/payments/spec.md` is the contract (endpoints, status codes, rules; currently only `GET /health`). Read it before changing behaviour and update it in the same change. Decisions with trade-offs get an ADR in `spec/docs/adr/`.
+- Spec: `spec/payments/spec.md` is the contract (endpoints, status codes, rules; health and payment refunds). Read it before changing behaviour and update it in the same change. Decisions with trade-offs get an ADR in `spec/docs/adr/`.
 - Related repo (sibling of this one): `../spacey` (backend, the caller of this service).
-- Table: `payments` (`migrations/001_create_payments.sql`, `002_add_refunded_status.sql`). No foreign key to bookings: this service never touches bookings, which live elsewhere.
+- Table: `payments` (`migrations/001_create_payments.sql`, `002_add_refunded_status.sql`, `003_unique_idempotency_key.sql`). No foreign key to bookings: this service never touches bookings, which live elsewhere.
 
 ## Build, run and test
 

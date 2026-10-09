@@ -52,3 +52,7 @@ Tests wipe the `payments` table: use a disposable database.
 | `RESET_DB_ON_START` | `true` truncates `payments` on start. Never in a deployment. | `false` |
 
 See `.env.example`. Never commit `.env` or credentials.
+
+## Deploy
+
+The manual [release workflow](.github/workflows/release.yml) tests, publishes and deploys a reviewed `main` revision to the course Nomad cluster when explicitly enabled. Service address, deployed revision, platform setup and the SRE check: [`spec/docs/operations/DEPLOYMENT.md`](spec/docs/operations/DEPLOYMENT.md).

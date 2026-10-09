@@ -1,14 +1,14 @@
 # Repository Guidelines
 
-`spacey-payments` is the payments microservice of Spacey. It was split out of the `spacey` backend, which now calls it over HTTP. Payments are mocked; no provider is integrated. Subscriptions are out of scope and live elsewhere.
+`spacey-payments` is the payments microservice of Spacey. It was split out of the `spacey` backend, which now calls it over HTTP. It owns the `payments` ledger (payment attempts and refunds). Paying a booking is the booking team's endpoint, not this service's. No provider is integrated. Subscriptions are out of scope and live elsewhere.
 
 ## Where things are
 
 - Code: `src/app.py` is `create_app()`, which wires `config.py` (env vars), `db.py` (connection and migration runner), `logger.py` (the shared logger), `health.py` (`GET /health`) and the payments blueprint. `src/payments/` is the domain, split by layer: `api.py` (Flask blueprint, HTTP only), `services.py` (business rules, no Flask or SQL), `repository.py` (SQL only), `models/cards.py` (card validation). Keep each layer to its job.
 - Migrations: `migrations/NNN_name.sql`, applied once each in filename order at startup and tracked in `schema_migrations`. Change the schema by adding a new numbered file, never by editing an applied one.
-- Spec: `spec/payments/spec.md` is the contract (endpoints, status codes, rules). Read it before changing behaviour and update it in the same change. Decisions with trade-offs get an ADR in `spec/docs/adr/`.
+- Spec: `spec/payments/spec.md` is the contract (endpoints, status codes, rules; currently only `GET /health`). Read it before changing behaviour and update it in the same change. Decisions with trade-offs get an ADR in `spec/docs/adr/`.
 - Related repo (sibling of this one): `../spacey` (backend, the caller of this service).
-- Table: `bookings` (payment-only columns), created by `migrations/001_init.sql`. There are no foreign keys, since spaces and users live in other services.
+- Table: `payments` (`migrations/001_create_payments.sql`, `002_add_refunded_status.sql`). No foreign key to bookings: this service never touches bookings, which live elsewhere.
 
 ## Build, run and test
 
@@ -27,14 +27,14 @@ Four-space indentation, `snake_case`, uppercase constants, type hints and short 
 
 ## Testing
 
-Tests live in `tests/test_*.py` with helpers in `tests/support.py`; add new ones there using `unittest` and Flask's test client, against a dedicated test database (`create_app(database_url, reset_on_start=True)`). Cover at least: invalid card fields, missing booking, `force_failure`, paying twice (idempotent, no second charge), and any new endpoint's success and error paths.
+Tests live in `tests/test_*.py` with helpers in `tests/support.py`; add new ones there using `unittest` and Flask's test client, against a dedicated test database (`create_app(database_url, reset_on_start=True)`). Card validation is unit-tested in `tests/test_cards.py`. Cover every new endpoint's success and error paths, including idempotent retries and log levels.
 
 ## Security and configuration
 
 - Never persist full card numbers or CVCs; store only the last four digits. Never log card data or database exception text.
 - Treat the repo as public (the sibling repos are): no `.env`, credentials or tokens in commits.
 - Variables: `DATABASE_URL`, `APP_REVISION` (reported by `/health`), `LOG_LEVEL`, `RESET_DB_ON_START`.
-- `RESET_DB_ON_START=true` truncates the `bookings` table. Use it only against disposable local or test data, never in a deployment.
+- `RESET_DB_ON_START=true` truncates the `payments` table. Use it only against disposable local or test data, never in a deployment.
 
 ## Workflow
 

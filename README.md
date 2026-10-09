@@ -1,6 +1,6 @@
 # spacey-payments
 
-Payments microservice for Spacey. Mocked: no payment provider is integrated.
+Payments microservice for Spacey. Owns the `payments` ledger; paying a booking is the booking team's endpoint, not this service's. No payment provider is integrated.
 The contract is in [`spec/payments/spec.md`](spec/payments/spec.md); contributor
 and agent guidance is in [`AGENTS.md`](AGENTS.md).
 
@@ -40,7 +40,7 @@ export DATABASE_URL=postgresql://spacey:spacey@localhost:5433/spacey
 uv run python -m unittest discover -s tests
 ```
 
-Tests wipe the `bookings` table: use a disposable database.
+Tests wipe the `payments` table: use a disposable database.
 
 ## Configuration
 
@@ -49,6 +49,6 @@ Tests wipe the `bookings` table: use a disposable database.
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://spacey:spacey@localhost:5432/spacey` |
 | `APP_REVISION` | Reported by `/health` | `local` |
 | `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING` or `ERROR`. Payment start events are DEBUG; success is INFO; rejections WARNING; database failures ERROR. | `INFO` |
-| `RESET_DB_ON_START` | `true` truncates `bookings` on start. Never in a deployment. | `false` |
+| `RESET_DB_ON_START` | `true` truncates `payments` on start. Never in a deployment. | `false` |
 
 See `.env.example`. Never commit `.env` or credentials.

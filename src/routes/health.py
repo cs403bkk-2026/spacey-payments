@@ -11,7 +11,8 @@ health_blueprint: Blueprint = Blueprint("health", __name__)
 def health():
     with UnitOfWork().transaction() as services:
         if (result := services.health.check()).failed:
-            logger.error("Health check failed: %s", result.reason)
-            return jsonify(status="error", error=result.reason), 503
+            # result.reason is database exception text: never log or return it
+            logger.error("health outcome=database_unreachable")
+            return jsonify(status="error", error="database unreachable"), 503
 
     return jsonify(status="ok", revision=config.APP_REVISION)

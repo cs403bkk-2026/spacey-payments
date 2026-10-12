@@ -2,11 +2,12 @@
 name = "spacey-payments"
 version = "0.1.0"
 description = "Mock payment API for Spacey"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "flask>=3.0,<4.0",
     "gunicorn>=22.0",
     "psycopg[binary]>=3.1,<4.0",
+    "sqlalchemy>=2.0,<3.0",
 ]
 
 [tool.uv]

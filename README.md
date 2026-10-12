@@ -21,13 +21,16 @@ fails rather than deleting duplicates. See the [contract](spec/payments/spec.md)
 ## Layout
 
 ```
-src/app.py            create_app(): wires config, db, logger, blueprints
+src/app.py            create_app(): wires config, database, logger, blueprints
 src/config.py         environment variables
-src/db.py             connection + migration runner
+src/database.py       SQLAlchemy sessions + migration runner
+src/unit_of_work.py   transaction commit / rollback
 src/logger.py         the shared logger (no card data in logs)
-src/health.py         GET /health
-src/payments/         api.py (HTTP) -> services.py (rules) -> repository.py (SQL),
-                      models/cards.py (card validation)
+src/routes/           HTTP blueprints (health and refunds)
+src/services/         business rules
+src/repositories/     SQL
+src/domain/card.py    card validation
+src/models/payment.py ledger model
 migrations/           numbered SQL, applied once each at startup
 tests/                unittest + Flask test client, real PostgreSQL
 spec/                 service spec and project docs
@@ -36,6 +39,8 @@ compose.yaml          Postgres (5433) + the service (8001)
 ```
 
 ## Run locally
+
+Requires Python 3.12+ and PostgreSQL.
 
 ```sh
 docker compose up db -d
@@ -66,3 +71,7 @@ Tests wipe the `payments` table: use a disposable database.
 | `RESET_DB_ON_START` | `true` truncates `payments` on start. Never in a deployment. | `false` |
 
 See `.env.example`. Never commit `.env` or credentials.
+
+## Deploy
+
+The manual [release workflow](.github/workflows/release.yml) tests, publishes and deploys a reviewed `main` revision to the course Nomad cluster when explicitly enabled. Service address, deployed revision, platform setup and the SRE check: [`spec/docs/operations/DEPLOYMENT.md`](spec/docs/operations/DEPLOYMENT.md).

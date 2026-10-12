@@ -4,15 +4,16 @@
 
 ## Where things are
 
-- Code: `src/app.py` is `create_app()`, which wires `config.py` (env vars), `db.py` (connection and migration runner), `logger.py` (the shared logger), `health.py` (`GET /health`) and the payments blueprint. `src/payments/` is the domain, split by layer: `api.py` (Flask blueprint, HTTP only), `services.py` (business rules, no Flask or SQL), `repository.py` (SQL only), `models/cards.py` (card validation). Keep each layer to its job.
+- Code: `src/app.py` wires config, database and blueprints. `src/routes/` owns HTTP, `src/services/` owns business rules, `src/repositories/` owns SQL, `src/domain/card.py` validates cards and `src/models/payment.py` defines the ledger model. `src/unit_of_work.py` gives each request a session and commits or rolls it back. Keep each layer to its job.
 - Migrations: `migrations/NNN_name.sql`, applied once each in filename order at startup and tracked in `schema_migrations`. Change the schema by adding a new numbered file, never by editing an applied one.
+- Deployment: `deploy/payments.nomad.hcl` and `.github/workflows/release.yml`; setup and release checks: `spec/docs/operations/DEPLOYMENT.md`.
 - Spec: `spec/payments/spec.md` is the contract (endpoints, status codes, rules; health and payment refunds). Read it before changing behaviour and update it in the same change. Decisions with trade-offs get an ADR in `spec/docs/adr/`.
 - Related repo (sibling of this one): `../spacey` (backend, the caller of this service).
 - Table: `payments` (`migrations/001_create_payments.sql`, `002_add_refunded_status.sql`, `003_unique_idempotency_key.sql`). No foreign key to bookings: this service never touches bookings, which live elsewhere.
 
 ## Build, run and test
 
-Python 3.10+, [uv](https://docs.astral.sh/uv/) and a running PostgreSQL.
+Python 3.12+, [uv](https://docs.astral.sh/uv/) and a running PostgreSQL.
 
 - `uv sync`: install dependencies from `uv.lock`.
 - `export DATABASE_URL='postgresql://spacey:spacey@localhost:5432/spacey'`: the default. The sibling `../spacey/compose.yaml` publishes Postgres on **5433**, so use that port if you start it with `docker compose up db -d`.
@@ -23,11 +24,11 @@ Python 3.10+, [uv](https://docs.astral.sh/uv/) and a running PostgreSQL.
 
 ## Coding style
 
-Four-space indentation, `snake_case`, uppercase constants, type hints and short docstrings as in the existing module. SQL is always parameterised with `%s` and separate parameters. Money is integer cents. No formatter or linter is configured; match the surrounding code.
+Four-space indentation, `snake_case`, uppercase constants, type hints and short docstrings as in the existing module. SQL uses SQLAlchemy statements with named bind parameters and separate values. Money is integer cents. No formatter or linter is configured; match the surrounding code.
 
 ## Testing
 
-Tests live in `tests/test_*.py` with helpers in `tests/support.py`; add new ones there using `unittest` and Flask's test client, against a dedicated test database (`create_app(database_url, reset_on_start=True)`). Card validation is unit-tested in `tests/test_cards.py`. Cover every new endpoint's success and error paths, including idempotent retries and log levels.
+Tests live in `tests/test_*.py` with helpers in `tests/support.py`; add new ones there using `unittest` and Flask's test client, against a dedicated test database (`DATABASE_URL` and `create_app(reset_on_start=True)`). Card validation is unit-tested in `tests/test_cards.py`. Cover every new endpoint's success and error paths, including idempotent retries and log levels.
 
 ## Security and configuration
 

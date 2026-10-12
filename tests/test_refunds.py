@@ -2,16 +2,17 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from unittest.mock import patch
 
-import psycopg
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from src.app import create_app
-from src.payments import repository
+from src.repositories.payments import PaymentsRepository
 from tests.support import AppTestCase
 
 
 class RefundTests(AppTestCase):
     def seed_payment(self, status="success"):
-        with self.app.db.cursor() as cur:
+        with self.db.cursor() as cur:
             cur.execute(
                 "INSERT INTO payments (booking_id, amount_cents, status, card_last4) "
                 "VALUES (42, 1250, %s, '4242') RETURNING id",
@@ -24,7 +25,7 @@ class RefundTests(AppTestCase):
 
     def test_full_refund_and_retry_preserve_original(self):
         payment_id = self.seed_payment()
-        original = repository.get_payment(self.app.db, payment_id)
+        original = self.repository.get_payment(payment_id)
         with self.assertLogs("spacey_payments", level="DEBUG") as logs:
             first = self.refund(payment_id)
             retry = self.refund(payment_id, json={"reason": "different reason"})
@@ -42,11 +43,11 @@ class RefundTests(AppTestCase):
         self.assertEqual(payload["status"], "refunded")
         self.assertEqual(payload["card_last4"], "4242")
         self.assertEqual(payload["reason"], "cancellation")
-        refund = repository.get_refund_for_payment(self.app.db, payment_id)
+        refund = self.repository.get_refund_for_payment(payment_id)
         self.assertEqual(refund["id"], payload["payment_id"])
         self.assertEqual(refund["idempotency_key"], f"refund:{payment_id}")
-        self.assertEqual(repository.get_payment(self.app.db, payment_id), original)
-        with self.app.db.cursor() as cur:
+        self.assertEqual(self.repository.get_payment(payment_id), original)
+        with self.db.cursor() as cur:
             cur.execute("SELECT count(*) AS count FROM payments")
             self.assertEqual(cur.fetchone()["count"], 2)
         self.assertEqual(
@@ -70,7 +71,7 @@ class RefundTests(AppTestCase):
                     response = self.refund(payment_id)
                 self.assertEqual(response.status_code, 409)
                 self.assertEqual(response.get_json(), {"error": "payment is not refundable"})
-                self.assertIsNone(repository.get_refund_for_payment(self.app.db, payment_id))
+                self.assertIsNone(self.repository.get_refund_for_payment(payment_id))
                 self.assertEqual(logs.records[0].getMessage(),
                                  "payment booking_id=42 outcome=not_refundable")
 
@@ -93,28 +94,27 @@ class RefundTests(AppTestCase):
                 with self.assertLogs("spacey_payments", level="WARNING"):
                     response = self.refund(payment_id, json={"reason": reason})
                 self.assertEqual(response.status_code, 400)
-        self.assertIsNone(repository.get_refund_for_payment(self.app.db, payment_id))
+        self.assertIsNone(self.repository.get_refund_for_payment(payment_id))
 
     def test_database_failures_are_sanitized(self):
         payment_id = self.seed_payment()
         for operation, booking_id in (("get_payment", None), ("insert_refund", 42)):
             with self.subTest(operation=operation):
-                with patch.object(repository, operation, side_effect=psycopg.OperationalError(
-                    "secret SQL parameters 4242424242424242"
+                with patch.object(PaymentsRepository, operation, side_effect=OperationalError(
+                    "secret SQL parameters 4242424242424242", {}, Exception("secret")
                 )), self.assertLogs("spacey_payments", level="ERROR") as logs:
                     response = self.refund(payment_id)
                 self.assertEqual(response.status_code, 500)
                 self.assertEqual(response.get_json(), {"error": "payment unavailable"})
                 self.assertEqual([r.getMessage() for r in logs.records],
                                  [f"payment booking_id={booking_id} outcome=database_error"])
-        self.assertIsNone(repository.get_refund_for_payment(self.app.db, payment_id))
+        self.assertIsNone(self.repository.get_refund_for_payment(payment_id))
 
     def test_concurrent_requests_create_one_refund(self):
         payment_id = self.seed_payment()
         other_app = create_app(reset_on_start=False)
-        self.addCleanup(other_app.db.close)
         barrier = Barrier(2)
-        insert_refund = repository.insert_refund
+        insert_refund = PaymentsRepository.insert_refund
 
         def concurrent_insert(*args):
             barrier.wait(timeout=5)
@@ -125,11 +125,24 @@ class RefundTests(AppTestCase):
                 response = client.post(f"/payments/{payment_id}/refund")
                 return response.status_code, response.get_json()
 
-        with patch.object(repository, "insert_refund", side_effect=concurrent_insert):
+        with patch.object(PaymentsRepository, "insert_refund", autospec=True, side_effect=concurrent_insert):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 results = list(pool.map(request_refund, (self.app, other_app)))
         self.assertEqual(sorted(code for code, _ in results), [200, 201])
         self.assertEqual(results[0][1], results[1][1])
-        with self.app.db.cursor() as cur:
+        with self.db.cursor() as cur:
             cur.execute("SELECT count(*) AS count FROM payments WHERE status = 'refunded'")
             self.assertEqual(cur.fetchone()["count"], 1)
+
+    def test_commit_failure_rolls_back_refund(self):
+        payment_id = self.seed_payment()
+        error = OperationalError("secret SQL parameters", {}, Exception("secret"))
+        with patch.object(Session, "commit", side_effect=error), self.assertLogs(
+            "spacey_payments", level="ERROR"
+        ) as logs:
+            response = self.refund(payment_id)
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.get_json(), {"error": "payment unavailable"})
+        self.assertEqual([r.getMessage() for r in logs.records],
+                         ["payment booking_id=42 outcome=database_error"])
+        self.assertIsNone(self.repository.get_refund_for_payment(payment_id))

@@ -4,7 +4,7 @@
 |--------|----------|
 | [`adr/`](adr/) | Architecture decision records. Numbered `NNNN-short-title.md`, never renumbered. |
 | [`process/`](process/) | How the team works: [CONTRIBUTING](process/CONTRIBUTING.md) (branches, PRs, reviews, blockers). |
-| [`operations/`](operations/) | [Load test results](operations/LOAD_TEST.md) and the team's [startup log](operations/STARTUP_LOG.md). |
+| [`operations/`](operations/) | [Load test results](operations/LOAD_TEST.md), the team's [startup log](operations/STARTUP_LOG.md) and [deployment](operations/DEPLOYMENT.md). |
 | [`api/`](api/) | OpenAPI contract of the backend (`spacey`) that calls this service. (Payments' contract is in [`../payments/`](../payments/spec.md).) |
 | [`overview/`](overview/) | Backend README: how to run the backend locally and how changes reach production. |
 

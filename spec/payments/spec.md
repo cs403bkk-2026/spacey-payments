@@ -5,7 +5,7 @@ Service: `spacey-payments`. Status: **as implemented 2026-10-09**. No payment pr
 ## Responsibilities
 
 - Own the `payments` ledger: payment attempts and refunds, keyed by `booking_id`.
-- Validate card details (shape and expiry only) in `payments/models/cards.py`.
+- Validate card details (shape, Luhn checksum and expiry) in `src/domain/card.py`.
 - Not responsible for bookings, spaces, users, access codes or subscriptions. Paying a booking (`POST /bookings/<id>/pay`) is the booking team's endpoint, so this service has no foreign keys into those domains and never touches a bookings table.
 
 ## Data
@@ -62,7 +62,7 @@ Body: `booking_id`, `amount_cents` (> 0), `card_number`, `expiry` (`MM/YY`), `cv
 
 | Condition | Response |
 |-----------|----------|
-| Invalid body or card | `400 {error}` (messages as in `models/cards.py`); nothing is recorded |
+| Invalid body or card | `400 {error}` (messages as in `src/domain/card.py`); nothing is recorded |
 | Same `idempotency_key` seen before, same `booking_id` and `amount_cents` | Same status code and body as the first time (no second collection) |
 | Same `idempotency_key`, different `booking_id` or `amount_cents` | `409 {error: "idempotency_key reused"}` |
 | Booking already has a `success` payment under a different key | `409 {error: "booking already paid"}` with the existing payment |
@@ -94,4 +94,3 @@ After each recorded outcome Payments calls `POST {PURCHASE_URL}/bookings/<bookin
 - The proposed payment creation/lookup endpoints and notification above. Needs agreement from Purchase.
 - Purchase cancellation calling the implemented refund endpoint; removal of monolith refund code.
 - Config for `PURCHASE_URL` and `SERVICE_TOKEN`.
-- Luhn check: the monolith's `payment.services.validate_card` has it; this service does not yet.

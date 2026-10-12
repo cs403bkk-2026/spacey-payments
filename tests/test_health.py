@@ -1,3 +1,8 @@
+from unittest.mock import patch
+
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
+
 from tests.support import AppTestCase
 
 
@@ -9,8 +14,9 @@ class HealthTests(AppTestCase):
         self.assertIn("revision", resp.get_json())
 
     def test_health_is_503_and_logged_as_error_when_database_is_down(self):
-        self.app.db.close()
-        with self.assertLogs("spacey_payments", level="ERROR") as logs:
+        with patch.object(Session, "execute", side_effect=OperationalError(
+            "secret", {}, Exception("secret")
+        )), self.assertLogs("spacey_payments", level="ERROR") as logs:
             resp = self.client.get("/health")
         self.assertEqual(resp.status_code, 503)
         self.assertEqual(

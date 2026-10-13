@@ -10,20 +10,25 @@ info:
     Payments are mocked: no payment provider is integrated.
 
 
-    **Status.** `GET /health` is implemented. `POST /payments/{payment_id}/refund`
-    is implemented in PT-019 (PR #3, in review). `POST /payment/bookings/{booking_id}/pay`
+    **Status.** Every endpoint below is implemented. `POST /payment/bookings/{booking_id}/pay`
     is a **temporary** route, moved from `spacey` by PT-022 (source: `spacey`
-    PR #244, still open). It is stateless and will be replaced by `POST /payments`
-    and removed from the final API once the ledger lands. `POST /payments`,
-    `GET /payments/{payment_id}` and `GET /payments` are proposed (ADR 0004,
-    `spec/docs/adr/0004-purchase-payments-communication.md`) and have not yet
-    been agreed with Purchase. Service authentication is not implemented yet:
-    do not expose any `/payments` endpoint publicly until it is.
+    PR #244). It is stateless and will be removed once Purchase calls
+    `POST /payments`. The ledger endpoints follow ADR 0004
+    (`spec/docs/adr/0004-purchase-payments-communication.md`), which Purchase
+    has not yet agreed, so paths and fields may still change. No provider is
+    integrated, so nothing produces an `unknown` (`202`) outcome yet. The
+    `payment-result` notification to Purchase is not built.
 
 
-    **Authentication (planned).** Every endpoint except `GET /health` will
-    require the shared secret in the `X-Service-Token` header. Requests without
-    it, or with the wrong value, will get `401`.
+    **Authentication.** Every endpoint except `GET /health` requires the
+    shared secret in the `X-Service-Token` header, compared with the
+    `SERVICE_TOKEN` environment variable. Requests without it, or with the
+    wrong value, get `401`. If `SERVICE_TOKEN` is unset, every such request gets
+    `401`.
+
+
+    **Ids.** Path ids are positive integers up to 2147483647; anything else in
+    a path is `404`.
 
 
     **Errors.** Every error response is `{"error": "<message>"}`. The only
@@ -179,8 +184,11 @@ paths:
 
         Repeating a request with an `idempotency_key` already used for the same
         `booking_id` and `amount_cents` returns the original status code and
-        body, and collects nothing. A booking can only have one `success`
-        payment.
+        body, and collects nothing. The key is looked up right after the
+        non-card fields are checked and before the card is, so a retry is
+        answered from the ledger even if the card has expired since. A booking
+        can only have one `success` payment; concurrent requests are settled
+        by unique indexes, so at most one collects.
 
 
         An invalid body or card is rejected with `400` and nothing is recorded.
@@ -231,12 +239,24 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               examples:
+                body:
+                  value: { error: body must be a JSON object }
+                booking_id:
+                  value: { error: booking_id must be a positive integer }
                 amount:
                   value: { error: amount_cents must be a positive integer }
+                currency:
+                  value: { error: currency must be USD }
                 key:
                   value: { error: idempotency_key is required }
+                key_length:
+                  value: { error: idempotency_key must be at most 255 characters }
+                key_prefix:
+                  value: { error: "idempotency_key must not start with refund:" }
                 card_number:
                   value: { error: card_number must be 13-19 digits }
+                luhn:
+                  value: { error: card_number is not a valid card number }
                 cvc:
                   value: { error: cvc must be 3 or 4 digits }
                 expiry_format:
@@ -303,7 +323,7 @@ paths:
           in: query
           required: true
           description: The booking whose payments to list.
-          schema: { type: integer, example: 42 }
+          schema: { type: integer, minimum: 1, example: 42 }
       responses:
         "200":
           description: The booking's payments, oldest first.
@@ -317,11 +337,11 @@ paths:
                     items: { $ref: "#/components/schemas/Payment" }
                 required: [payments]
         "400":
-          description: '`booking_id` is missing or not an integer.'
+          description: '`booking_id` is missing or not a positive integer.'
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-              example: { error: booking_id must be an integer }
+              example: { error: booking_id must be a positive integer }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/Unavailable" }
 
@@ -466,11 +486,14 @@ components:
       properties:
         booking_id:
           type: integer
+          minimum: 1
+          maximum: 2147483647
           description: The booking this payment is for. Not checked against Purchase.
           example: 42
         amount_cents:
           type: integer
           minimum: 1
+          maximum: 2147483647
           description: The booking's recorded price in cents, sent by Purchase.
           example: 1500
         currency:
@@ -501,12 +524,13 @@ components:
           maxLength: 255
           description: >
             Identifies this operation. Reuse it to retry the same attempt; send
-            a new one to try again after a confirmed failure.
+            a new one to try again after a confirmed failure. Must not start
+            with `refund:` (reserved for refunds).
           example: booking-42-attempt-1
         force_failure:
           type: boolean
           default: false
-          description: Test hook. If true, the attempt is recorded as `failed`.
+          description: Test hook. Only a literal `true` records the attempt as `failed`.
       required: [booking_id, amount_cents, card_number, expiry, cvc, idempotency_key]
 
     PayBookingRequest:

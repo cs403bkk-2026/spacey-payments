@@ -37,6 +37,8 @@ Out:
 
 ## Follow-ups
 
+Remaining migration work is tracked in [PT-020](PT-020-complete-payments-repo-migration.md).
+
 1. `spacey` / booking team: own the pay endpoint and the booking's `paid` state; decide how payment attempts are recorded in this service's `payments` table.
 2. Auth between `spacey` and `spacey-payments`, and the HTTP contract between them: see [ADR 0004](../docs/adr/0004-purchase-payments-communication.md) (proposed).
 3. Refund on cancellation (PT-013) as a `spacey-payments` endpoint called by `spacey`; endpoints that write attempts and refunds to the `payments` table.

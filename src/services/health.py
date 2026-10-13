@@ -17,5 +17,6 @@ class HealthService:
             self._session.execute(query)
             return Result.success()
 
-        except SQLAlchemyError as err:
-            return Result.failure(f"{str(err)}")
+        except SQLAlchemyError:
+            self._session.rollback()
+            return Result.failure("database unreachable")

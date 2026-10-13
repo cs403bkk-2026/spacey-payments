@@ -55,7 +55,7 @@ Before release, the platform owner checks:
 - Nomad clients can pull the image from GHCR, using public package visibility
   or separately provisioned registry authentication.
 - The application node can reach the database and has capacity for the job.
-- GitHub's `production` environment requires the designated release review.
+- GitHub's `production` environment does not require a separate release approval.
 
 Set `DEPLOY_ENABLED=true` as a repository variable only after setup and review.
 In the protected `production` environment set variables `NOMAD_NAMESPACE`,
@@ -66,10 +66,9 @@ default-only token is unsuitable.
 ## Release and verification
 
 Every push to `main` starts the `release` workflow. The release owner can also
-retry it manually from `main`. With `DEPLOY_ENABLED=true`, the workflow first
-requires configured reviewers on the `production` environment; missing protection
-fails the run before publishing. The deploy job waits for that environment's
-approval. The workflow runs the full test suite, builds an image, exercises that image
+retry it manually from `main`. With `DEPLOY_ENABLED=true`, deployment proceeds
+automatically after the build checks pass, without a separate production approval.
+The workflow runs the full test suite, builds an image, exercises that image
 against disposable Postgres, and publishes that same image. Deployment uses its
 registry digest, waits for Nomad's rollout, then requires `/health` to report both
 `status: ok` and the exact source revision, and `GET /payments` without a token to

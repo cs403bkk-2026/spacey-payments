@@ -65,8 +65,11 @@ default-only token is unsuitable.
 
 ## Release and verification
 
-After review and merge, the release owner manually runs the `release` workflow
-from `main`. It runs the full test suite, builds an image, exercises that image
+Every push to `main` starts the `release` workflow. The release owner can also
+retry it manually from `main`. With `DEPLOY_ENABLED=true`, the workflow first
+requires configured reviewers on the `production` environment; missing protection
+fails the run before publishing. The deploy job waits for that environment's
+approval. The workflow runs the full test suite, builds an image, exercises that image
 against disposable Postgres, and publishes that same image. Deployment uses its
 registry digest, waits for Nomad's rollout, then requires `/health` to report both
 `status: ok` and the exact source revision, and `GET /payments` without a token to

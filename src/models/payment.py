@@ -14,6 +14,7 @@ class PaymentStatus(str, enum.Enum):
     SUCCESS = "success"
     FAILED = "failed"
     UNKNOWN = "unknown"
+    REFUNDED = "refunded"
 
 
 class PaymentCurrency(str, enum.Enum):

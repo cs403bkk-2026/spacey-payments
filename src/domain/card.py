@@ -3,22 +3,23 @@ from datetime import datetime, timezone
 from re import Pattern, compile
 from typing import Any, ClassVar, Optional, Self
 
+from src.result import Result
+
 
 @dataclass(slots=True, frozen=True)
 class Card:
 
     @classmethod
-    def from_body(cls, body: dict[str, Any]) -> Optional[Self]:
-        if (number := body.get("card_number")) is None:
-            return None
+    def from_body(cls, body: dict[str, Any]) -> Result[Self]:
+        """The card in a request body, or the first problem with it. A missing
+           or non-string field counts as empty, so it gets that field's format
+           error and the order in validate() still decides which error wins."""
+        fields = [body.get(key) for key in ("card_number", "cvc", "expiry")]
+        card = cls(*(value if isinstance(value, str) else "" for value in fields))
+        if (error := card.validate()) is not None:
+            return Result.failure(error)
 
-        if (cvc := body.get("cvc")) is None:
-            return None
-
-        if (expiry := body.get("expiry")) is None:
-            return None
-
-        return cls(number, cvc, expiry)
+        return Result.success(card)
 
     NUMBER_RE: ClassVar[Pattern] = compile(r"^\d{13,19}$")
     CVC_RE: ClassVar[Pattern] = compile(r"^\d{3,4}$")

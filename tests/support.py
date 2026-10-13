@@ -3,9 +3,10 @@ payments table, so point it at a disposable database."""
 
 import os
 import unittest
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Iterator, Optional
+from typing import Optional
 from unittest import mock
 
 from sqlalchemy import func, select
@@ -37,7 +38,7 @@ def expiry_months_from_now(months: int) -> str:
 
 
 @contextmanager
-def unreachable_database() -> Iterator[None]:
+def unreachable_database() -> Generator[None, None, None]:
     """Points Postgres at a closed port for the duration of the block."""
     healthy = Postgres.get()
     with mock.patch.dict(os.environ, {Postgres.URL_KEY: UNREACHABLE_DATABASE_URL}):
@@ -75,7 +76,9 @@ class DatabaseTestCase(unittest.TestCase):
 
     def count_payments(self) -> int:
         with UnitOfWork().transaction() as services:
-            return services.session.scalar(select(func.count()).select_from(Payment))
+            count = services.session.scalar(select(func.count()).select_from(Payment))
+            assert count is not None
+            return count
 
     def all_payments(self) -> list[Payment]:
         with UnitOfWork().transaction() as services:

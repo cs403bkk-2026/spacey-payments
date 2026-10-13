@@ -40,6 +40,7 @@ class PaymentModelTests(DatabaseTestCase):
         with UnitOfWork().transaction() as services:
             payment = services.session.get(Payment, created.id)
 
+        assert payment is not None
         self.assertEqual(payment.booking_id, 7)
         self.assertEqual(payment.amount_cents, 2500)
         self.assertEqual(payment.currency, PaymentCurrency.USD)

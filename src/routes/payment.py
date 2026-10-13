@@ -75,8 +75,10 @@ def payment_body(payment: Payment) -> dict[str, Any]:
 
 def reply_response(reply: PaymentReply) -> JsonResponse:
     if reply.kind in STATUS_BY_ERROR:
+        assert reply.error is not None
         return error_response(reply.error, STATUS_BY_ERROR[reply.kind])
 
+    assert reply.payment is not None
     if reply.kind == Reply.ALREADY_PAID:
         return jsonify(payment_body(reply.payment)), 409
 
@@ -96,16 +98,18 @@ def json_object_body(empty_is_object: bool = False) -> Optional[dict[str, Any]]:
 
 
 @payment_blueprint.post(f"/payment/bookings/<{ID}:booking_id>/pay")
-def pay_booking(booking_id: int) -> JsonResponse:
+def pay(booking_id: int) -> JsonResponse:
     """Temporary and stateless (PT-022). A missing, malformed or non-object
        body is read as {} and gets the first card error."""
     body = request.get_json(silent=True)
     reply = authorize_booking_payment(booking_id, body if isinstance(body, dict) else {})
 
     if reply.kind == Reply.AUTHORIZED:
+        assert reply.card is not None
         return jsonify(booking_id=booking_id, status="success",
                        card_last4=reply.card.last4), 200
 
+    assert reply.error is not None
     return error_response(reply.error, STATUS_BY_ERROR[reply.kind])
 
 
@@ -129,6 +133,7 @@ def list_payments() -> JsonResponse:
     booking_id: Optional[int] = int(raw) if raw.isascii() and raw.isdigit() else None
     if not is_id(booking_id):
         return error_response("booking_id must be a positive integer", 400)
+    assert isinstance(booking_id, int)
 
     with UnitOfWork().transaction() as services:
         result = services.payments.list_for_booking(booking_id)

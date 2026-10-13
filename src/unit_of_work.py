@@ -1,6 +1,6 @@
-from contextlib import AbstractContextManager, contextmanager
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Iterator, overload
 
 from src.database import Postgres
 from src.services.services import Services
@@ -18,12 +18,8 @@ class UnitOfWork:
     _postgres: Postgres = field(init=False, default_factory=Postgres.get)
     _session_active: bool = field(init=False, default=False)
 
-    @overload
-    def transaction(self) -> AbstractContextManager[Services]:
-        ...
-
     @contextmanager
-    def transaction(self) -> Iterator[Services]:
+    def transaction(self) -> Generator[Services, None, None]:
         if self._session_active:
             raise NestedTransactionError()
 

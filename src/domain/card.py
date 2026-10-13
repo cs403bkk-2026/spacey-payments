@@ -29,6 +29,12 @@ class Card:
     cvc: str
     expiry: str
 
+    def __post_init__(self) -> None:
+        """Non-strings become empty so validate() only checks the format."""
+        for name in ("number", "cvc", "expiry"):
+            if not isinstance(getattr(self, name), str):
+                object.__setattr__(self, name, "")
+
     @property
     def last4(self) -> str:
         return self.number[-4:]
@@ -50,17 +56,14 @@ class Card:
         """Returns an error message, or None if the (mocked) card looks valid -
            right shape, passes the Luhn checksum and not expired. Still no network
            check: it says nothing about whether the card really exists."""
-        if not isinstance(self.number, str) or not Card.NUMBER_RE.fullmatch(self.number):
+        if not Card.NUMBER_RE.fullmatch(self.number):
             return "card_number must be 13-19 digits"
 
         if not self._luhn():
             return "card_number is not a valid card number"
 
-        if not isinstance(self.cvc, str) or not Card.CVC_RE.fullmatch(self.cvc):
+        if not Card.CVC_RE.fullmatch(self.cvc):
             return "cvc must be 3 or 4 digits"
-
-        if not isinstance(self.expiry, str):
-            return "expiry must be in MM/YY format"
 
         if (match := Card.EXPIRY_RE.fullmatch(self.expiry)) is None:
             return "expiry must be in MM/YY format"

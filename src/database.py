@@ -49,10 +49,12 @@ class Postgres:
 
     @classmethod
     def get(cls) -> Self:
-        if Postgres._instance is None:
-            Postgres.init()
+        if cls._instance is None:
+            cls.init()
 
-        return Postgres._instance
+        instance = cls._instance
+        assert instance is not None
+        return instance
 
     _database_url: str
     _engine: Engine

@@ -27,4 +27,4 @@ class ResultTests(unittest.TestCase):
 
     def test_results_are_immutable(self):
         with self.assertRaises(AttributeError):
-            Result.success(1).reason = "changed"
+            setattr(Result.success(1), "reason", "changed")

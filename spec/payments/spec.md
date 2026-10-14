@@ -5,7 +5,7 @@ Service: `spacey-payments`. Status: **as implemented 2026-10-12**. No payment pr
 ## Responsibilities
 
 - Own the `payments` ledger: payment attempts and refunds, keyed by `booking_id`.
-- Validate card details (shape, Luhn checksum and expiry) in `src/domain/card.py`.
+- Validate card details (ASCII digit shape, Luhn checksum and expiry) in `src/domain/card.py`.
 - Not responsible for bookings, spaces, users, access codes or subscriptions. Paying a booking (`POST /bookings/<id>/pay`) is the booking team's endpoint, so this service has no foreign keys into those domains and never touches a bookings table.
 
 ## Data
@@ -67,7 +67,7 @@ Body: optional JSON object with `reason` (non-empty string, default `cancellatio
 | Otherwise | `201` a new `refunded` row with the original's `booking_id`, `amount_cents`, `currency` and `card_last4`; its `idempotency_key` is `refund:<payment_id>`. The original row is never changed. |
 
 ### Temporary: `POST /payment/bookings/<booking_id>/pay`
-Stateless mock outcome moved from `spacey` PR #244 (PT-022); removed once Purchase calls `POST /payments`. Reads and writes no table and does not check the booking. A missing, malformed or non-object body counts as `{}`. `200 {booking_id, status: "success", card_last4}`; `400 {error}` with the first card problem; `402 {error: "payment failed"}` for `force_failure: true`.
+Stateless mock outcome moved from `spacey` PR #244 (PT-022, pinned at `0d4f4a1b4e29334884683de674bb17e18ed43466`); removed once Purchase calls `POST /payments`. Reads and writes no table and does not check the booking. A missing, malformed or non-object body counts as `{}`. Only ASCII digits match, with no trailing characters. `200 {booking_id, status: "success", card_last4}`; `400 {error}` with the first card problem; `402 {error: "payment failed"}` for `force_failure: true`.
 
 ### Proposed: notification to Purchase
 After each recorded outcome Payments calls `POST {PURCHASE_URL}/bookings/<booking_id>/payment-result` with `{payment_id, status, amount_cents, occurred_at}` and `X-Service-Token`. A `2xx` means Purchase applied it or had already seen it. On a timeout or non-2xx Payments retries with backoff; a failed notification never changes the recorded payment. Purchase owns the endpoint and the booking update.

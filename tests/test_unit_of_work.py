@@ -1,5 +1,9 @@
 """UnitOfWork (src/unit_of_work.py) and Services (src/services/services.py)."""
 
+from typing import cast
+
+from sqlalchemy.orm import Session
+
 from src.models.payment import Payment, PaymentStatus
 from src.services.health import HealthService
 from src.services.payment import PaymentService
@@ -56,7 +60,7 @@ class ServicesTests(DatabaseTestCase):
             self.assertIs(services.payments.repository, services.payments.repository)
 
     def test_invalidate_drops_the_session_and_services(self):
-        services = Services(object())
+        services = Services(cast(Session, object()))
         services.payments
         services.invalidate()
         with self.assertRaises(InvalidSessionError):

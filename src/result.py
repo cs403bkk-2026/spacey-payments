@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Self
+from typing import Optional, Self, cast
 
 
 @dataclass(slots=True, frozen=True)
@@ -28,4 +28,4 @@ class Result[T]:
     @property
     def value(self) -> T:
         assert self._ok, f"Result failed: {self.reason}"
-        return self._value
+        return cast(T, self._value)

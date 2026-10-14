@@ -83,6 +83,20 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(card(number="4242424242424241").validate(),
                          "card_number is not a valid card number")
 
+    def test_trailing_newlines_and_non_ascii_digits_are_rejected(self):
+        arabic = str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
+        cases = [
+            ("number", "4242424242424242\n", "card_number must be 13-19 digits"),
+            ("number", "4242424242424242".translate(arabic), "card_number must be 13-19 digits"),
+            ("cvc", "123\n", "cvc must be 3 or 4 digits"),
+            ("cvc", "123".translate(arabic), "cvc must be 3 or 4 digits"),
+            ("expiry", "12/99\n", "expiry must be in MM/YY format"),
+            ("expiry", "12/99".translate(arabic), "expiry must be in MM/YY format"),
+        ]
+        for field, value, message in cases:
+            with self.subTest(field=field, value=value):
+                self.assertEqual(card(**{field: value}).validate(), message)
+
     def test_cvc_boundaries(self):
         cases = [("12", False), ("123", True), ("1234", True), ("12345", False),
                  ("", False), (" 123", False), ("abc", False)]

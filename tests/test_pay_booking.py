@@ -58,6 +58,19 @@ class PayBookingTests(DatabaseTestCase):
         resp = self.pay(json={**VALID_CARD, "cvc": "1", "force_failure": True})
         self.assertEqual(resp.status_code, 400)
 
+    def test_trailing_newlines_and_non_ascii_digits_are_rejected(self):
+        errors = {
+            "card_number": "card_number must be 13-19 digits",
+            "cvc": "cvc must be 3 or 4 digits",
+            "expiry": "expiry must be in MM/YY format",
+        }
+        for field, error in errors.items():
+            value = VALID_CARD[field]
+            for bad in (value + "\n", value.translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))):
+                with self.subTest(field=field, value=bad):
+                    resp = self.pay(json={**VALID_CARD, field: bad})
+                    self.assertEqual((resp.status_code, resp.get_json()), (400, {"error": error}))
+
     def test_non_object_or_malformed_body_is_read_as_empty(self):
         for data in ("null", "[]", '"card"', "42", "true", "{not json", ""):
             with self.subTest(data=data):

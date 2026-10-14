@@ -2,7 +2,7 @@
 
 Date: 2026-10-09
 
-Status: Proposed. The booking team (Purchase) has not agreed to the paths and fields below; nothing is implemented. Implementation is split into tickets, starting with refunds: [PT-019](../../tickets/PT-019-refactor-refund-logic-to-payments-service.md).
+Status: Proposed. The booking team (Purchase) has not agreed to the paths and fields below; the final ledger and callback contract is not implemented. Implementation is split into tickets, starting with refunds: [PT-019](../../tickets/PT-019-refactor-refund-logic-to-payments-service.md).
 
 ## Context
 
@@ -24,6 +24,22 @@ Alternatives considered:
 | HTTP plus an outbox in Payments | Closes the crash-between-record-and-notify gap without a broker. A good later upgrade; see Consequences. |
 | gRPC | Typed and fast, but adds tooling to a Flask/JSON team for no load benefit. |
 | Shared database | Defeats the split. |
+
+## Temporary migration route (PT-022)
+
+`POST /payment/bookings/<booking_id>/pay` is implemented as the stateless mock
+from spacey PR #244 at `0d4f4a1b4e29334884683de674bb17e18ed43466`.
+It returns the existing 200/400/402 outcomes without a session, ledger writes or
+Purchase callbacks. Purchase retains booking ownership. It uses the same
+`X-Service-Token` check as the other payment endpoints and has no deduplication.
+The idempotency and notification rules below apply to the ledger API, not this
+temporary route.
+
+PT-020 delivered the Unit of Work architecture. PT-022 uses its existing route,
+service and Card modules without opening a transaction for stateless processing.
+PT-024 implements the final endpoints; its `POST /payments` supersedes the
+temporary route, which is removed when Purchase switches. Refunds remain PT-019;
+Purchase integration and monolith cleanup remain separate work.
 
 ## Contract
 
